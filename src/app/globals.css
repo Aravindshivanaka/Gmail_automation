@@ -1,0 +1,8 @@
+/*
+ * Tailwind entry point.
+ * The @tailwind directives inject Tailwind's base styles, component classes,
+ * and utility classes into this file at build time.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
