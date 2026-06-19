@@ -320,3 +320,39 @@ export async function listHistory(
     newHistoryId: newestHistoryId ?? startHistoryId,
   };
 }
+
+/**
+ * Sends a raw MIME email message using the Gmail REST API.
+ * The raw message is base64url-encoded and sent using users.messages.send.
+ * Reuses the gmailFetch helper for token handling and rate-limit backoff.
+ */
+export async function sendGmailMessage(
+  accessToken: string,
+  rawMime: string,
+  threadId?: string,
+): Promise<{ id: string; threadId: string }> {
+  // Convert standard base64 to base64url per Gmail API requirements
+  const base64UrlEncoded = Buffer.from(rawMime)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const body: any = {
+    raw: base64UrlEncoded,
+  };
+  if (threadId) {
+    body.threadId = threadId;
+  }
+
+  const res = await gmailFetch("/users/me/messages/send", accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  return (await res.json()) as { id: string; threadId: string };
+}
+

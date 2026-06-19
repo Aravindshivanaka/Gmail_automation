@@ -176,6 +176,7 @@ export async function getRecentMessages(
 ): Promise<
   {
     id: string;
+    thread_id?: string;
     subject: string | null;
     sender: string | null;
     received_at: string | null;
@@ -185,7 +186,7 @@ export async function getRecentMessages(
 > {
   const { data, error } = await supabase
     .from("messages")
-    .select("id, subject, sender, received_at, category, summary")
+    .select("id, thread_id, subject, sender, received_at, category, summary")
     .eq("user_id", userId)
     .order("received_at", { ascending: false, nullsFirst: false })
     .limit(limit);
@@ -196,6 +197,7 @@ export async function getRecentMessages(
   }
   return (data ?? []) as Array<{
     id: string;
+    thread_id: string;
     subject: string | null;
     sender: string | null;
     received_at: string | null;
