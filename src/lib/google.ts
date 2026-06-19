@@ -1,5 +1,6 @@
 import "server-only";
 import type { GoogleTokenResponse, GoogleIdTokenPayload, User } from "./types";
+import { InvalidClientError, isDeletedClientError } from "./token-recovery";
 
 /**
  * ============================================================================
@@ -196,6 +197,16 @@ export async function refreshAccessToken(
 
   if (!res.ok) {
     const detail = await res.text();
+
+    // If the issuing OAuth client was deleted/rotated, the refresh token is
+    // permanently unusable. Throw a TAGGED error so the route layer can catch
+    // it specifically and force re-auth, instead of looping on retries or
+    // showing a confusing 401 to the user.
+    if (res.status === 401 && isDeletedClientError(detail)) {
+      throw new InvalidClientError(
+        `Token refresh rejected with deleted_client (user re-auth required)`,
+      );
+    }
     throw new Error(`Token refresh failed (${res.status}): ${detail}`);
   }
 

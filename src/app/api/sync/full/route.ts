@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, destroySession } from "@/lib/session";
 import { syncInbox } from "@/lib/sync";
+import { InvalidClientError, clearInvalidTokens } from "@/lib/token-recovery";
 
 /**
  * ============================================================================
@@ -42,6 +43,21 @@ export async function POST() {
       ),
     );
   } catch (err) {
+    // Special case: the OAuth client was rotated/deleted (401 deleted_client).
+    // The stored tokens are permanently unusable. Clear them, end the session,
+    // and bounce the user to re-authenticate with the new client. All their
+    // synced data is preserved (same Google `sub` → same user row on re-login).
+    if (err instanceof InvalidClientError) {
+      console.warn(
+        `[sync/full] invalid client for ${user.email} — forcing re-auth`,
+      );
+      await clearInvalidTokens(user.id);
+      await destroySession();
+      return NextResponse.redirect(
+        new URL("/api/auth/login", requestOrigin()),
+      );
+    }
+
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[sync/full] failed for ${user.email}:`, msg);
     return NextResponse.redirect(

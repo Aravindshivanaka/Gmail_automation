@@ -1,4 +1,5 @@
 import "server-only";
+import { InvalidClientError, isDeletedClientError } from "./token-recovery";
 
 /**
  * ============================================================================
@@ -96,8 +97,17 @@ async function gmailFetch(
     }
 
     // For any other non-OK status (400, 401, 404, 500...), throw — no retry.
+    // Exception: a 401 carrying `deleted_client` / `invalid_client` means the
+    // OAuth client was rotated/deleted and the stored access token is now
+    // permanently invalid. Surface a TAGGED error so the route layer can
+    // force re-auth instead of just showing a 401 banner.
     if (!res.ok) {
       const body = await res.text();
+      if (res.status === 401 && isDeletedClientError(body)) {
+        throw new InvalidClientError(
+          `Gmail API rejected token with deleted_client (user re-auth required)`,
+        );
+      }
       throw new Error(`Gmail API error ${res.status} on ${path}: ${body}`);
     }
     return res;
