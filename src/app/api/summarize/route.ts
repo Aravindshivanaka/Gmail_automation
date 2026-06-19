@@ -11,11 +11,11 @@ import { summarizeUserMessages, summarizeUserThreads } from "@/lib/summarize";
  * Runs message-level and then thread-level summarization sequentially,
  * redirecting the user back home with results.
  */
-export async function POST() {
+export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.redirect(
-      new URL("/?sum_error=not_logged_in", requestOrigin()), 303
+      new URL("/?sum_error=not_logged_in", requestOrigin(req)), 303
     );
   }
 
@@ -32,22 +32,25 @@ export async function POST() {
     console.log(`[api/summarize] finished sequential flow: ${summaryStr}`);
 
     return NextResponse.redirect(
-      new URL(`/?sum_success=${encodeURIComponent(summaryStr)}`, requestOrigin()), 303
+      new URL(`/?sum_success=${encodeURIComponent(summaryStr)}`, requestOrigin(req)), 303
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[api/summarize] failed:`, msg);
     return NextResponse.redirect(
-      new URL(`/?sum_error=${encodeURIComponent(msg)}`, requestOrigin()), 303
+      new URL(`/?sum_error=${encodeURIComponent(msg)}`, requestOrigin(req)), 303
     );
   }
 }
 
-function requestOrigin(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    (process.env.NODE_ENV === "production"
-      ? "https://change-me.vercel.app"
-      : "http://localhost:3000")
-  );
+function requestOrigin(req: Request): string {
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+  try {
+    const url = new URL(req.url);
+    if (url.origin && url.origin !== 'null') {
+      return url.origin;
+    }
+  } catch (e) {}
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
 }
