@@ -15,7 +15,7 @@ export async function POST() {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.redirect(
-      new URL("/?sum_error=not_logged_in", requestOrigin())
+      new URL("/?sum_error=not_logged_in", requestOrigin()), 303
     );
   }
 
@@ -32,13 +32,13 @@ export async function POST() {
     console.log(`[api/summarize] finished sequential flow: ${summaryStr}`);
 
     return NextResponse.redirect(
-      new URL(`/?sum_success=${encodeURIComponent(summaryStr)}`, requestOrigin())
+      new URL(`/?sum_success=${encodeURIComponent(summaryStr)}`, requestOrigin()), 303
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[api/summarize] failed:`, msg);
     return NextResponse.redirect(
-      new URL(`/?sum_error=${encodeURIComponent(msg)}`, requestOrigin())
+      new URL(`/?sum_error=${encodeURIComponent(msg)}`, requestOrigin()), 303
     );
   }
 }

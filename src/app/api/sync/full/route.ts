@@ -24,7 +24,7 @@ import { InvalidClientError, clearInvalidTokens } from "@/lib/token-recovery";
 export async function POST() {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.redirect(new URL("/?sync_error=not_logged_in", requestOrigin()));
+    return NextResponse.redirect(new URL("/?sync_error=not_logged_in", requestOrigin()), 303);
   }
 
   const t0 = Date.now();
@@ -40,7 +40,7 @@ export async function POST() {
       new URL(
         `/?sync_success=${result.messagesSynced} messages, ${result.threadsTouched} threads`,
         requestOrigin(),
-      ),
+      ), 303,
     );
   } catch (err) {
     // Special case: the OAuth client was rotated/deleted (401 deleted_client).
@@ -54,14 +54,14 @@ export async function POST() {
       await clearInvalidTokens(user.id);
       await destroySession();
       return NextResponse.redirect(
-        new URL("/api/auth/login", requestOrigin()),
+        new URL("/api/auth/login", requestOrigin()), 303,
       );
     }
 
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[sync/full] failed for ${user.email}:`, msg);
     return NextResponse.redirect(
-      new URL(`/?sync_error=${encodeURIComponent(msg)}`, requestOrigin()),
+      new URL(`/?sync_error=${encodeURIComponent(msg)}`, requestOrigin()), 303,
     );
   }
 }
