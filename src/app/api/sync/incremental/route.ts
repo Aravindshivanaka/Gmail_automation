@@ -18,11 +18,11 @@ import { InvalidClientError, clearInvalidTokens } from "@/lib/token-recovery";
  *
  * Same auth model as /api/sync/full: identity comes from the session cookie.
  */
-export async function POST() {
+export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.redirect(
-      new URL("/?sync_error=not_logged_in", requestOrigin()), 303,
+      new URL("/?sync_error=not_logged_in", requestOrigin(req)), 303,
     );
   }
 
@@ -31,7 +31,7 @@ export async function POST() {
     const result = await syncInboxIncremental(user);
     console.log(
       `[sync/incremental] finished for ${user.email} — ` +
-        `${result.messagesSynced} new msgs${result.fellBackToFull ? " (fell back to full)" : ""}`,
+         `${result.messagesSynced} new msgs${result.fellBackToFull ? " (fell back to full)" : ""}`,
     );
 
     const msg = result.fellBackToFull
@@ -39,7 +39,7 @@ export async function POST() {
       : `${result.messagesSynced} new messages, ${result.threadsTouched} threads`;
 
     return NextResponse.redirect(
-      new URL(`/?sync_success=${encodeURIComponent(msg)}`, requestOrigin()), 303,
+      new URL(`/?sync_success=${encodeURIComponent(msg)}`, requestOrigin(req)), 303,
     );
   } catch (err) {
     // Special case: OAuth client was rotated/deleted (401 deleted_client).
@@ -52,21 +52,27 @@ export async function POST() {
       await clearInvalidTokens(user.id);
       await destroySession();
       return NextResponse.redirect(
-        new URL("/api/auth/login", requestOrigin()), 303,
+        new URL("/api/auth/login", requestOrigin(req)), 303,
       );
     }
 
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[sync/incremental] failed for ${user.email}:`, msg);
     return NextResponse.redirect(
-      new URL(`/?sync_error=${encodeURIComponent(msg)}`, requestOrigin()), 303,
+      new URL(`/?sync_error=${encodeURIComponent(msg)}`, requestOrigin(req)), 303,
     );
   }
 }
 
 /** Same origin helper as /api/sync/full — see comment there. */
-function requestOrigin(): string {
+function requestOrigin(req: Request): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+  try {
+    const url = new URL(req.url);
+    if (url.origin && url.origin !== 'null') {
+      return url.origin;
+    }
+  } catch (e) {}
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return "http://localhost:3000";
 }

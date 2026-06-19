@@ -21,10 +21,10 @@ import { InvalidClientError, clearInvalidTokens } from "@/lib/token-recovery";
  * in users). No user id is taken from the request — we derive it from the
  * session cookie, so you can only sync your OWN inbox.
  */
-export async function POST() {
+export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.redirect(new URL("/?sync_error=not_logged_in", requestOrigin()), 303);
+    return NextResponse.redirect(new URL("/?sync_error=not_logged_in", requestOrigin(req)), 303);
   }
 
   const t0 = Date.now();
@@ -39,7 +39,7 @@ export async function POST() {
     return NextResponse.redirect(
       new URL(
         `/?sync_success=${result.messagesSynced} messages, ${result.threadsTouched} threads`,
-        requestOrigin(),
+        requestOrigin(req),
       ), 303,
     );
   } catch (err) {
@@ -54,14 +54,14 @@ export async function POST() {
       await clearInvalidTokens(user.id);
       await destroySession();
       return NextResponse.redirect(
-        new URL("/api/auth/login", requestOrigin()), 303,
+        new URL("/api/auth/login", requestOrigin(req)), 303,
       );
     }
 
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[sync/full] failed for ${user.email}:`, msg);
     return NextResponse.redirect(
-      new URL(`/?sync_error=${encodeURIComponent(msg)}`, requestOrigin()), 303,
+      new URL(`/?sync_error=${encodeURIComponent(msg)}`, requestOrigin(req)), 303,
     );
   }
 }
@@ -76,8 +76,14 @@ export async function POST() {
  * (Kept tiny on purpose; if you deploy somewhere other than localhost/Vercel,
  * set NEXT_PUBLIC_SITE_URL.)
  */
-function requestOrigin(): string {
+function requestOrigin(req: Request): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+  try {
+    const url = new URL(req.url);
+    if (url.origin && url.origin !== 'null') {
+      return url.origin;
+    }
+  } catch (e) {}
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return "http://localhost:3000";
 }
