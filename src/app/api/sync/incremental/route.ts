@@ -22,7 +22,7 @@ export async function POST() {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.redirect(
-      new URL("/?sync_error=not_logged_in", requestOrigin()),
+      new URL("/?sync_error=not_logged_in", requestOrigin()), 303,
     );
   }
 
@@ -39,7 +39,7 @@ export async function POST() {
       : `${result.messagesSynced} new messages, ${result.threadsTouched} threads`;
 
     return NextResponse.redirect(
-      new URL(`/?sync_success=${encodeURIComponent(msg)}`, requestOrigin()),
+      new URL(`/?sync_success=${encodeURIComponent(msg)}`, requestOrigin()), 303,
     );
   } catch (err) {
     // Special case: OAuth client was rotated/deleted (401 deleted_client).
@@ -52,14 +52,14 @@ export async function POST() {
       await clearInvalidTokens(user.id);
       await destroySession();
       return NextResponse.redirect(
-        new URL("/api/auth/login", requestOrigin()),
+        new URL("/api/auth/login", requestOrigin()), 303,
       );
     }
 
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[sync/incremental] failed for ${user.email}:`, msg);
     return NextResponse.redirect(
-      new URL(`/?sync_error=${encodeURIComponent(msg)}`, requestOrigin()),
+      new URL(`/?sync_error=${encodeURIComponent(msg)}`, requestOrigin()), 303,
     );
   }
 }

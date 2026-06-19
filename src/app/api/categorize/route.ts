@@ -22,7 +22,7 @@ export async function POST() {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.redirect(
-      new URL("/?cat_error=not_logged_in", requestOrigin()),
+      new URL("/?cat_error=not_logged_in", requestOrigin()), 303,
     );
   }
 
@@ -44,13 +44,13 @@ export async function POST() {
       `[categorize] finished for ${user.email} in ${secs}s — ${summary}`,
     );
     return NextResponse.redirect(
-      new URL(`/?cat_success=${encodeURIComponent(summary)}`, requestOrigin()),
+      new URL(`/?cat_success=${encodeURIComponent(summary)}`, requestOrigin()), 303,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[categorize] failed for ${user.email}:`, msg);
     return NextResponse.redirect(
-      new URL(`/?cat_error=${encodeURIComponent(msg)}`, requestOrigin()),
+      new URL(`/?cat_error=${encodeURIComponent(msg)}`, requestOrigin()), 303,
     );
   }
 }
