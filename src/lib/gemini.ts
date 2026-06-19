@@ -141,6 +141,7 @@ async function callNvidiaNim(prompt: string, maxTokens: number): Promise<string>
   const endpoint = `${nimBaseUrl}/chat/completions`;
 
   const makeRequest = () => {
+    const model = (process.env.NVIDIA_MODEL_NAME || "google/gemma-4-31b-it").trim();
     return fetch(endpoint, {
       method: "POST",
       headers: {
@@ -148,7 +149,7 @@ async function callNvidiaNim(prompt: string, maxTokens: number): Promise<string>
         "Authorization": `Bearer ${nimApiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemma-4-31b-it",
+        model,
         messages: [
           { role: "user", content: prompt }
         ],
@@ -473,3 +474,287 @@ function normalizeCategory(raw: string): Category {
   );
   return "Work/Professional";
 }
+
+/**
+ * Builds the prompt for drafting a new email from a short prompt.
+ */
+function buildComposePrompt(userPrompt: string): string {
+  return [
+    "You are an expert email composer.",
+    "Draft a professional, complete email based on the following short prompt/instruction.",
+    "",
+    "Prompt/Instruction:",
+    userPrompt,
+    "",
+    "Format requirements:",
+    "Return the draft using exactly this format (with the ===SUBJECT=== and ===BODY=== headers):",
+    "===SUBJECT===",
+    "[Draft subject here, concise and professional]",
+    "===BODY===",
+    "[Draft body here, well-structured, professional, and natural]",
+    "",
+    "Do not include any other conversational filler or markup."
+  ].join("\n");
+}
+
+/**
+ * Builds the prompt for drafting a reply based on thread context and a short instruction.
+ */
+function buildReplyPrompt(threadContext: string, userPrompt: string): string {
+  return [
+    "You are an expert email assistant replying to an ongoing conversation.",
+    "Review the conversation history (chronological order) and the user's reply prompt below.",
+    "Draft an appropriate, natural, and professional reply body that fits perfectly into the conversation context.",
+    "",
+    "Conversation History:",
+    threadContext,
+    "",
+    "Reply Instruction/Prompt from User:",
+    userPrompt,
+    "",
+    "Format requirements:",
+    "- Return ONLY the body text of the reply. Do not include a subject.",
+    "- Do not include any greeting or signature placeholder unless it makes sense for the content.",
+    "- Do not include any conversational filler, markdown formatting (like markdown code blocks), or headers."
+  ].join("\n");
+}
+
+/**
+ * Drafts a new email (subject and body) based on a short prompt.
+ * Reuses Gemini with fallback to NVIDIA NIM.
+ */
+export async function draftNewEmail(
+  userPrompt: string,
+): Promise<{ subject: string; body: string }> {
+  const prompt = buildComposePrompt(userPrompt);
+
+  let raw = "";
+  if (process.env.SKIP_GEMINI === "true") {
+    console.log(`[gemini] SKIP_GEMINI is set to true. Bypassing Gemini, calling NVIDIA NIM directly for email draft.`);
+    raw = await callNvidiaNim(prompt, 500);
+    console.log(`[AI] model_used: nim (task: compose-draft)`);
+  } else {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Missing env var: GEMINI_API_KEY");
+
+    try {
+      const res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7, // slightly higher temp for writing creativity
+            maxOutputTokens: 500,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text();
+        if (res.status === 429 || detail.includes("RESOURCE_EXHAUSTED") || detail.includes("quota")) {
+          console.warn(`[gemini] rate limit hit (429/RESOURCE_EXHAUSTED) on draft. Falling back to NVIDIA NIM.`);
+          raw = await callNvidiaNim(prompt, 500);
+          console.log(`[AI] model_used: nim (task: compose-draft)`);
+        } else {
+          throw new Error(`Gemini API error ${res.status}: ${detail}`);
+        }
+      } else {
+        const data = (await res.json()) as {
+          candidates?: Array<{
+            content?: { parts?: Array<{ text?: string }> };
+          }>;
+        };
+        raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        console.log(`[AI] model_used: gemini (task: compose-draft)`);
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
+        console.warn(`[gemini] rate limit caught on draft. Falling back to NVIDIA NIM.`);
+        raw = await callNvidiaNim(prompt, 500);
+        console.log(`[AI] model_used: nim (task: compose-draft)`);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Parse subject and body
+  const subjectMatch = raw.match(/===SUBJECT===([\s\S]*?)===BODY===/);
+  const bodyMatch = raw.match(/===BODY===([\s\S]*)/);
+
+  const subject = subjectMatch ? subjectMatch[1].trim() : "New Draft";
+  const body = bodyMatch ? bodyMatch[1].trim() : raw.trim();
+
+  return { subject, body };
+}
+
+/**
+ * Drafts a reply body based on conversation context and a prompt.
+ * Reuses Gemini with fallback to NVIDIA NIM.
+ */
+export async function draftReplyEmail(
+  threadContext: string,
+  userPrompt: string,
+): Promise<string> {
+  const prompt = buildReplyPrompt(threadContext, userPrompt);
+
+  let raw = "";
+  if (process.env.SKIP_GEMINI === "true") {
+    console.log(`[gemini] SKIP_GEMINI is set to true. Bypassing Gemini, calling NVIDIA NIM directly for reply draft.`);
+    raw = await callNvidiaNim(prompt, 500);
+    console.log(`[AI] model_used: nim (task: reply-draft)`);
+  } else {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Missing env var: GEMINI_API_KEY");
+
+    try {
+      const res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 500,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text();
+        if (res.status === 429 || detail.includes("RESOURCE_EXHAUSTED") || detail.includes("quota")) {
+          console.warn(`[gemini] rate limit hit (429/RESOURCE_EXHAUSTED) on reply draft. Falling back to NVIDIA NIM.`);
+          raw = await callNvidiaNim(prompt, 500);
+          console.log(`[AI] model_used: nim (task: reply-draft)`);
+        } else {
+          throw new Error(`Gemini API error ${res.status}: ${detail}`);
+        }
+      } else {
+        const data = (await res.json()) as {
+          candidates?: Array<{
+            content?: { parts?: Array<{ text?: string }> };
+          }>;
+        };
+        raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        console.log(`[AI] model_used: gemini (task: reply-draft)`);
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
+        console.warn(`[gemini] rate limit caught on reply draft. Falling back to NVIDIA NIM.`);
+        raw = await callNvidiaNim(prompt, 500);
+        console.log(`[AI] model_used: nim (task: reply-draft)`);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  return raw.trim();
+}
+
+/**
+ * Generates a 768-dimensional vector embedding for the given text using Gemini's
+ * gemini-embedding-001 model (replaces the deprecated text-embedding-004).
+ * output_dimensionality is explicitly set to 768 to match the Supabase vector(768) column.
+ */
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Missing env var: GEMINI_API_KEY");
+
+  // Trim to a safe token limit for embeddings
+  const cleanText = (text ?? "").trim().slice(0, 8000);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      content: {
+        parts: [{ text: cleanText }],
+      },
+      outputDimensionality: 768,
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`Gemini embedding API error ${res.status}: ${detail}`);
+  }
+
+  const data = (await res.json()) as {
+    embedding?: { values?: number[] };
+  };
+
+  const values = data.embedding?.values;
+  if (!values || values.length === 0) {
+    throw new Error("Gemini embedding returned empty values");
+  }
+
+  return values;
+}
+
+/**
+ * Generates a RAG completion response using Gemini, with an automatic fallback
+ * to NVIDIA NIM (configured for Mistral) if rate limits are hit.
+ */
+export async function generateChatResponse(prompt: string): Promise<string> {
+  if (process.env.SKIP_GEMINI === "true") {
+    console.log(`[gemini] SKIP_GEMINI is set to true. Bypassing Gemini, calling NVIDIA NIM directly for chat response.`);
+    const nimRes = await callNvidiaNim(prompt, 1000);
+    console.log(`[AI] model_used: nim (task: chat-agent)`);
+    return nimRes;
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Missing env var: GEMINI_API_KEY");
+
+  try {
+    const res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.1, // Set to low temperature for factual RAG accuracy (prevent hallucinations)
+          maxOutputTokens: 1000,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const detail = await res.text();
+      if (res.status === 429 || detail.includes("RESOURCE_EXHAUSTED") || detail.includes("quota")) {
+        console.warn(`[gemini] rate limit hit (429/RESOURCE_EXHAUSTED) on chat response. Falling back to NVIDIA NIM.`);
+        const nimRes = await callNvidiaNim(prompt, 1000);
+        console.log(`[AI] model_used: nim (task: chat-agent)`);
+        return nimRes;
+      }
+      throw new Error(`Gemini API error ${res.status}: ${detail}`);
+    }
+
+    const data = (await res.json()) as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+      }>;
+    };
+
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    console.log(`[AI] model_used: gemini (task: chat-agent)`);
+    return raw;
+
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
+      console.warn(`[gemini] rate limit caught on chat response. Falling back to NVIDIA NIM.`);
+      const nimRes = await callNvidiaNim(prompt, 1000);
+      console.log(`[AI] model_used: nim (task: chat-agent)`);
+      return nimRes;
+    }
+    throw err;
+  }
+}
+
+
