@@ -2,165 +2,58 @@
 
 ## Project Overview
 
-InboxFlow Summarizer is an AI-powered Gmail Intelligence Platform built as part of the Repeatless AI Automation Executive Technical Assessment.
+InboxFlow Summarizer is an AI-powered Gmail Intelligence Platform built for the Repeatless technical assessment.
 
-The platform connects securely to Gmail using Google OAuth 2.0, synchronizes email data into Supabase, applies AI-powered categorization and summarization, enables intelligent email composition and replies, and provides a Retrieval-Augmented Generation (RAG) chat assistant that uses the user's email history as its knowledge base.
-
----
-
-# System Architecture
-
-User Browser
-
-↓
-
-Next.js Application
-
-↓
-
-Google Gmail API
-
-↓
-
-Supabase Database (PostgreSQL + pgvector)
-
-↓
-
-AI Layer (Gemini + NVIDIA NIM)
-
-↓
-
-Chat Agent / Categorization / Summarization / Compose
+The system connects to Gmail using Google OAuth, syncs emails into Supabase, categorizes and summarizes messages using AI, generates email drafts and replies, and provides a chat assistant that can answer questions using the user's emails.
 
 ---
 
-# Technology Choices
+## Tech Stack
 
-## Frontend
+Frontend & Backend:
 
-* Next.js App Router
+* Next.js
 * TypeScript
 * Tailwind CSS
 
-Reason:
-Provides a modern full-stack React architecture with API routes and deployment simplicity through Vercel.
-
-## Database
+Database:
 
 * Supabase PostgreSQL
 * pgvector
 
-Reason:
-Supports relational email storage while enabling vector similarity search for the RAG assistant.
+AI Models:
 
-## AI Models
+* Google Gemini (Primary)
+* NVIDIA NIM (Fallback)
 
-Primary:
+Deployment:
 
-* Google Gemini
-
-Fallback:
-
-* NVIDIA NIM
-
-Reason:
-Gemini provides strong reasoning and generation quality while NVIDIA NIM provides resilience when Gemini rate limits or quota exhaustion occurs.
+* Vercel
 
 ---
 
-# Gmail Integration Design
+## How the System Works
 
-## Authentication
+### Gmail Connection
 
-Google OAuth 2.0 is used for authentication.
+Users connect their Gmail account through Google OAuth.
 
-Scopes:
+After login, access tokens and refresh tokens are stored securely and used to access Gmail data.
 
-* gmail.readonly
-* gmail.send
-* gmail.modify
+### Email Sync
 
-Tokens are securely stored in Supabase.
+The application syncs:
 
-Refresh tokens are used to automatically obtain new access tokens without requiring repeated user login.
-
----
-
-# Email Synchronization Strategy
-
-## Initial Sync
-
-The system retrieves:
-
-* Messages
+* Emails
 * Threads
 * Labels
 * Metadata
 
-using Gmail API endpoints.
+After the first sync, only new or changed emails are fetched to reduce API usage.
 
-## Incremental Sync
+### Categorization
 
-A sync_state table stores synchronization progress.
-
-Subsequent sync operations only retrieve newly added or modified messages.
-
-This reduces API usage and improves performance.
-
-## Pagination
-
-Gmail nextPageToken handling is implemented to support large inboxes without application degradation.
-
----
-
-# Database Design
-
-## users
-
-Stores:
-
-* User profile information
-* OAuth credentials
-* Refresh tokens
-
-## messages
-
-Stores:
-
-* Gmail message ID
-* Thread ID
-* Sender
-* Subject
-* Email content
-* Category
-* Summary
-* Embedding
-
-## threads
-
-Stores:
-
-* Thread ID
-* Thread summary
-* Metadata
-
-## sync_state
-
-Stores synchronization checkpoints.
-
-## chat_sessions
-
-Stores user conversations with the assistant.
-
-## chat_messages
-
-Stores conversation history.
-
----
-
-# Email Categorization Pipeline
-
-Categories:
+Each email is automatically classified into:
 
 * Newsletter
 * Job / Recruitment
@@ -169,150 +62,93 @@ Categories:
 * Personal
 * Work / Professional
 
-Workflow:
+Categories are stored in Supabase and displayed in the UI.
 
-1. Email synchronized
-2. Email content extracted
-3. AI classification executed
-4. Category stored in database
-5. Category surfaced in UI
+### Summarization
 
----
+The system creates:
 
-# Email Summarization Pipeline
+* Individual email summaries
+* Full thread summaries
 
-## Message Summaries
+Thread summaries use the entire conversation history rather than a single email.
 
-Each email is summarized individually.
+### Compose & Reply
 
-## Thread Summaries
+Users can create emails using short prompts.
 
-The complete thread history is analyzed.
+For replies, the system reads the entire thread before generating a response.
 
-A single summary is generated describing the entire conversation context.
+Gmail threading headers are preserved so replies appear correctly in Gmail conversations.
 
-This ensures conversation awareness rather than isolated message understanding.
+### AI Chat Agent
 
----
-
-# Compose & Reply Architecture
-
-## Compose
-
-User enters a short natural-language prompt.
-
-AI generates:
-
-* Subject
-* Email body
-
-The user can edit and send the draft.
-
-## Reply
-
-The system retrieves the full thread history.
-
-The AI receives:
-
-* Original email
-* Prior thread messages
-* User instruction
-
-A contextual reply is generated.
-
-The following Gmail threading fields are preserved:
-
-* In-Reply-To
-* References
-* threadId
-
-This ensures replies appear inside the correct Gmail conversation.
-
----
-
-# RAG Chat Agent Architecture
-
-The chat assistant uses the user's email history as its exclusive knowledge source.
+The chat assistant uses the user's emails as its knowledge base.
 
 Workflow:
 
-1. Email synchronized
-2. Embeddings generated
-3. Vectors stored in pgvector
-4. User asks question
-5. Similarity search retrieves relevant emails
-6. Retrieved context sent to AI model
-7. AI generates answer
-8. Sources attributed in response
+1. Email content is converted into embeddings.
+2. Embeddings are stored in pgvector.
+3. Relevant emails are retrieved through similarity search.
+4. Retrieved emails are sent to the AI model.
+5. The AI generates a response with source attribution.
+
+The assistant only answers using retrieved email data and avoids making up information.
 
 ---
 
-# Embedding Strategy
+## Database Design
 
-Embedding Model:
+Main Tables:
 
-* gemini-embedding-001
+* users
+* messages
+* threads
+* sync_state
+* chat_sessions
+* chat_messages
 
-Vector Size:
+The messages table also stores:
 
-* 768 dimensions
-
-Reason:
-
-Provides semantic search capabilities for cross-email retrieval and synthesis.
-
----
-
-# Hallucination Prevention
-
-The chat assistant is instructed to:
-
-* Use only retrieved email context
-* Cite sources when responding
-* Refuse unsupported claims
-* Explicitly state when information is unavailable
-
-This reduces hallucination risk and improves trustworthiness.
+* category
+* summary
+* embedding vector
 
 ---
 
-# AI Failover Strategy
+## AI Strategy
 
-All AI operations use:
+Google Gemini is used as the primary AI model.
 
-1. Google Gemini (Primary)
-2. NVIDIA NIM (Fallback)
+NVIDIA NIM acts as a fallback when Gemini encounters:
 
-Fallback activates automatically when:
+* Rate limits
+* Quota exhaustion
+* Temporary failures
 
-* Rate limits occur
-* Quota exhaustion occurs
-* Temporary model failures occur
-
-This approach ensures continuity of service.
+This keeps AI features working even when one provider becomes unavailable.
 
 ---
 
-# Known Limitations
+## Challenges & Decisions
 
-* Google OAuth currently runs in Testing Mode
-* Evaluators may require Test User access
-* Sent emails may occasionally land in Spam due to test application reputation
-* Newsletter deduplication bonus feature was not implemented due to assessment time constraints
+During development, Gemini free-tier limits were reached frequently.
 
----
+To improve reliability, a Gemini-first and NVIDIA-NIM-fallback architecture was implemented.
 
-# Future Improvements
-
-* Newsletter semantic deduplication
-* Advanced search filters
-* Real-time Gmail push notifications
-* Multi-account Gmail support
-* Fine-grained email labels
-* Streaming chat responses
+For semantic search, pgvector was chosen because it integrates directly with Supabase and supports efficient email retrieval for the chat agent.
 
 ---
 
-# Conclusion
+## Known Limitations
 
-The platform successfully implements the core requirements of the Repeatless assessment, including Gmail integration, synchronization, categorization, summarization, AI-assisted composition and replies, vector-powered semantic search, and a source-aware RAG chat assistant built on Supabase, Gmail API, Gemini, and NVIDIA NIM.
+* Google OAuth currently runs in Testing Mode.
+* Evaluators may need to be added as Test Users.
+* Some sent emails may appear in Spam because the application uses a test OAuth setup.
+* Newsletter deduplication (bonus feature) was not implemented.
+
+---
+
+## Conclusion
+
+The platform successfully implements the core requirements of the assessment, including Gmail integration, email synchronization, categorization, summarization, AI-assisted compose and reply, and a RAG-based chat assistant with source attribution.
