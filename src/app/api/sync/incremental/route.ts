@@ -66,10 +66,7 @@ export async function POST() {
 
 /** Same origin helper as /api/sync/full — see comment there. */
 function requestOrigin(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    (process.env.NODE_ENV === "production"
-      ? "https://change-me.vercel.app"
-      : "http://localhost:3000")
-  );
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
 }
