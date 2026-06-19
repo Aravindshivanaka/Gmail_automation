@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, destroySession } from "@/lib/session";
 import { syncInboxIncremental } from "@/lib/sync";
+import { InvalidClientError, clearInvalidTokens } from "@/lib/token-recovery";
 
 /**
  * ============================================================================
@@ -41,6 +42,20 @@ export async function POST() {
       new URL(`/?sync_success=${encodeURIComponent(msg)}`, requestOrigin()),
     );
   } catch (err) {
+    // Special case: OAuth client was rotated/deleted (401 deleted_client).
+    // Stored tokens are permanently dead → clear them and force re-auth.
+    // See /api/sync/full/route.ts for the same handler + full rationale.
+    if (err instanceof InvalidClientError) {
+      console.warn(
+        `[sync/incremental] invalid client for ${user.email} — forcing re-auth`,
+      );
+      await clearInvalidTokens(user.id);
+      await destroySession();
+      return NextResponse.redirect(
+        new URL("/api/auth/login", requestOrigin()),
+      );
+    }
+
     const msg = err instanceof Error ? err.message : "unknown_error";
     console.error(`[sync/incremental] failed for ${user.email}:`, msg);
     return NextResponse.redirect(
