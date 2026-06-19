@@ -480,12 +480,15 @@ function normalizeCategory(raw: string): Category {
  * Automatically handles potential markdown code fences and provides safe fallbacks.
  */
 function cleanAndParseJson(raw: string): { subject: string; body: string } {
-  let clean = raw.trim();
-  // Strip Markdown code fences if present
-  clean = clean.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  let cleanText = raw.trim();
+  
+  // Force strip any accidental markdown fences the model might append
+  if (cleanText.startsWith("```")) {
+    cleanText = cleanText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  }
 
   try {
-    const parsed = JSON.parse(clean);
+    const parsed = JSON.parse(cleanText);
     return {
       subject: (parsed.subject || "").trim(),
       body: (parsed.body || "").trim(),
@@ -493,12 +496,13 @@ function cleanAndParseJson(raw: string): { subject: string; body: string } {
   } catch (err) {
     console.error("[gemini] Failed to parse JSON draft response:", err, "Raw response was:", raw);
     
-    // Fallback search for a JSON-like substring inside raw string
+    // Hardcoded fallback parser using regex
     try {
-      const jsonStart = clean.indexOf("{");
-      const jsonEnd = clean.lastIndexOf("}");
+      // Find JSON block first if there's any surrounding text
+      const jsonStart = cleanText.indexOf("{");
+      const jsonEnd = cleanText.lastIndexOf("}");
       if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-        const potentialJson = clean.substring(jsonStart, jsonEnd + 1);
+        const potentialJson = cleanText.substring(jsonStart, jsonEnd + 1);
         const parsed = JSON.parse(potentialJson);
         return {
           subject: (parsed.subject || "").trim(),
@@ -507,26 +511,30 @@ function cleanAndParseJson(raw: string): { subject: string; body: string } {
       }
     } catch (_) {}
 
-    // Fallback parser: if the model outputs unstructured format, try extracting subject/body if they look like key-values
-    const subjectMatch = clean.match(/"subject"\s*:\s*"([^"]*)"/);
-    const bodyMatch = clean.match(/"body"\s*:\s*"([\s\S]*?)"\s*(?:,|}|\n|$)/);
-    
-    if (subjectMatch || bodyMatch) {
-      let subject = subjectMatch ? subjectMatch[1] : "Draft";
-      let body = bodyMatch ? bodyMatch[1] : "";
+    // Regex fallback to extract values for subject and body manually
+    const subjectMatch = cleanText.match(/"subject"\s*:\s*"([^"]*)"/);
+    const bodyMatch = cleanText.match(/"body"\s*:\s*"([\s\S]*?)"\s*(?:,|}|\n|$)/);
+
+    let subject = "New Draft";
+    if (subjectMatch) {
+      subject = subjectMatch[1];
+    }
+
+    let body = "";
+    if (bodyMatch) {
+      body = bodyMatch[1];
+      // Unescape newlines and quotes
       try {
         body = JSON.parse(`"${body}"`);
       } catch (_) {
-        body = body.replace(/\\n/g, "\n").replace(/\\"/g, '"');
+        body = body.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\t/g, "\t");
       }
-      return { subject, body };
+    } else {
+      // Ultimate fallback: if no JSON structure matches, treat the entire output as body
+      body = raw.trim();
     }
 
-    // Ultimate fallback: assume entire thing is body
-    return {
-      subject: "Draft",
-      body: raw.trim(),
-    };
+    return { subject, body };
   }
 }
 
@@ -535,15 +543,22 @@ function cleanAndParseJson(raw: string): { subject: string; body: string } {
  */
 function buildComposePrompt(userPrompt: string): string {
   return [
-    "You are an expert email composer.",
-    "Draft a professional, complete email based on the following short prompt/instruction.",
+    "You are a strict JSON generator. Your task is to draft a professional email based on the user's prompt.",
+    "You must respond with a single, valid JSON object containing exactly two keys: 'subject' and 'body'. Do not include any introductory text, markdown code blocks (like ```json), or trailing conversational text.",
+    "Body Requirements:",
+    "- Must be concise and professional.",
+    "- Typical length: 80-200 words.",
+    "- Avoid generic filler.",
+    "- Avoid placeholders such as [insert details].",
+    "- Avoid unnecessarily long reports.",
+    "- Do NOT cut off mid-sentence.",
+    "Write a complete, comprehensive body with explicit newlines (\\n).",
     "",
-    "Prompt/Instruction:",
-    userPrompt,
+    "Example output format:",
+    "{\"subject\": \"Project Launch Timeline Update\", \"body\": \"Dear Team,\\n\\nI am writing to provide a quick update...\"}",
     "",
-    "Format requirements:",
-    "You must return your response in raw valid JSON format containing exactly two keys: 'subject' and 'body'. Do not include markdown code block formatting like ```json ... ```. Do not include introductory text. Ensure the 'body' string is fully written out, highly professional, complete, and contains multiple sentences with appropriate spacing (\\n) as requested by the user prompt. ",
-    "Example Output: {\"subject\": \"Follow-up regarding delay\", \"body\": \"Dear Team,\\n\\nI am writing to check in on...\"}"
+    "User Prompt:",
+    userPrompt
   ].join("\n");
 }
 
@@ -552,84 +567,111 @@ function buildComposePrompt(userPrompt: string): string {
  */
 function buildReplyPrompt(threadContext: string, userPrompt: string): string {
   return [
-    "You are an expert email assistant replying to an ongoing conversation.",
-    "Review the conversation history (chronological order) and the user's reply prompt below.",
-    "Draft an appropriate, natural, and professional reply body that fits perfectly into the conversation context.",
+    "You are a strict JSON generator. Your task is to draft a professional email based on the user's prompt. ",
+    "You must respond with a single, valid JSON object containing exactly two keys: 'subject' and 'body'. Do not include any introductory text, markdown code blocks (like ```json), or trailing conversational text. Write a complete, comprehensive body with multiple sentences and explicit newlines (\\n).",
+    "",
+    "Example output format:",
+    "{\"subject\": \"Project Launch Timeline Update\", \"body\": \"Dear Team,\\n\\nI am writing to provide a quick update...\"}",
     "",
     "Conversation History:",
     threadContext,
     "",
     "Reply Instruction/Prompt from User:",
-    userPrompt,
-    "",
-    "Format requirements:",
-    "You must return your response in raw valid JSON format containing exactly two keys: 'subject' and 'body'. Do not include markdown code block formatting like ```json ... ```. Do not include introductory text. Ensure the 'body' string is fully written out, highly professional, complete, and contains multiple sentences with appropriate spacing (\\n) as requested by the user prompt. ",
-    "Example Output: {\"subject\": \"Re: Follow-up regarding delay\", \"body\": \"Dear Team,\\n\\nI am writing to check in on...\"}"
+    userPrompt
   ].join("\n");
 }
 
 /**
  * Drafts a new email (subject and body) based on a short prompt.
  * Reuses Gemini with fallback to NVIDIA NIM.
+ * Implements a retry loop and defensive validation to ensure completion.
  */
 export async function draftNewEmail(
   userPrompt: string,
 ): Promise<{ subject: string; body: string }> {
   const prompt = buildComposePrompt(userPrompt);
+  let attempts = 0;
+  const maxAttempts = 3;
 
-  let raw = "";
-  if (process.env.SKIP_GEMINI === "true") {
-    console.log(`[gemini] SKIP_GEMINI is set to true. Bypassing Gemini, calling NVIDIA NIM directly for email draft.`);
-    raw = await callNvidiaNim(prompt, 500);
-    console.log(`[AI] model_used: nim (task: compose-draft)`);
-  } else {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("Missing env var: GEMINI_API_KEY");
-
+  while (attempts < maxAttempts) {
+    attempts++;
     try {
-      const res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7, // slightly higher temp for writing creativity
-            maxOutputTokens: 600, // increased tokens slightly for JSON formatting
-          },
-        }),
-      });
-
-      if (!res.ok) {
-        const detail = await res.text();
-        if (res.status === 429 || detail.includes("RESOURCE_EXHAUSTED") || detail.includes("quota")) {
-          console.warn(`[gemini] rate limit hit (429/RESOURCE_EXHAUSTED) on draft. Falling back to NVIDIA NIM.`);
-          raw = await callNvidiaNim(prompt, 600);
-          console.log(`[AI] model_used: nim (task: compose-draft)`);
-        } else {
-          throw new Error(`Gemini API error ${res.status}: ${detail}`);
-        }
-      } else {
-        const data = (await res.json()) as {
-          candidates?: Array<{
-            content?: { parts?: Array<{ text?: string }> };
-          }>;
-        };
-        raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-        console.log(`[AI] model_used: gemini (task: compose-draft)`);
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
-        console.warn(`[gemini] rate limit caught on draft. Falling back to NVIDIA NIM.`);
-        raw = await callNvidiaNim(prompt, 600);
+      let raw = "";
+      if (process.env.SKIP_GEMINI === "true") {
+        console.log(`[gemini] SKIP_GEMINI is set to true. Bypassing Gemini, calling NVIDIA NIM directly for email draft.`);
+        raw = await callNvidiaNim(prompt, 2048);
         console.log(`[AI] model_used: nim (task: compose-draft)`);
       } else {
-        throw err;
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) throw new Error("Missing env var: GEMINI_API_KEY");
+
+        try {
+          const res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 2048,
+              },
+            }),
+          });
+
+          if (!res.ok) {
+            const detail = await res.text();
+            if (res.status === 429 || detail.includes("RESOURCE_EXHAUSTED") || detail.includes("quota")) {
+              console.warn(`[gemini] rate limit hit (429/RESOURCE_EXHAUSTED) on draft. Falling back to NVIDIA NIM.`);
+              raw = await callNvidiaNim(prompt, 2048);
+              console.log(`[AI] model_used: nim (task: compose-draft)`);
+            } else {
+              throw new Error(`Gemini API error ${res.status}: ${detail}`);
+            }
+          } else {
+            const data = (await res.json()) as {
+              candidates?: Array<{
+                content?: { parts?: Array<{ text?: string }> };
+              }>;
+            };
+            raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+            console.log(`[AI] model_used: gemini (task: compose-draft)`);
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
+            console.warn(`[gemini] rate limit caught on draft. Falling back to NVIDIA NIM.`);
+            raw = await callNvidiaNim(prompt, 2048);
+            console.log(`[AI] model_used: nim (task: compose-draft)`);
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      const parsed = cleanAndParseJson(raw);
+      
+      if (!parsed.subject || parsed.subject.trim() === "" || parsed.subject === "New Draft") {
+        throw new Error("Missing or invalid subject");
+      }
+      if (!parsed.body || parsed.body.trim() === "") {
+        throw new Error("Missing or empty body");
+      }
+      
+      const cleanRaw = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      if (!cleanRaw.endsWith("}")) {
+        throw new Error("JSON response was truncated mid-sentence");
+      }
+
+      return parsed;
+    } catch (err) {
+      console.warn(`[compose/draft] Attempt ${attempts} failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (attempts >= maxAttempts) {
+        throw new Error(`Failed to generate draft after ${maxAttempts} attempts: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
-
-  return cleanAndParseJson(raw);
+  
+  throw new Error("Failed to generate draft");
 }
 
 /**
