@@ -476,6 +476,61 @@ function normalizeCategory(raw: string): Category {
 }
 
 /**
+ * Helper to clean and parse the strict JSON response from the LLM.
+ * Automatically handles potential markdown code fences and provides safe fallbacks.
+ */
+function cleanAndParseJson(raw: string): { subject: string; body: string } {
+  let clean = raw.trim();
+  // Strip Markdown code fences if present
+  clean = clean.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+  try {
+    const parsed = JSON.parse(clean);
+    return {
+      subject: (parsed.subject || "").trim(),
+      body: (parsed.body || "").trim(),
+    };
+  } catch (err) {
+    console.error("[gemini] Failed to parse JSON draft response:", err, "Raw response was:", raw);
+    
+    // Fallback search for a JSON-like substring inside raw string
+    try {
+      const jsonStart = clean.indexOf("{");
+      const jsonEnd = clean.lastIndexOf("}");
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        const potentialJson = clean.substring(jsonStart, jsonEnd + 1);
+        const parsed = JSON.parse(potentialJson);
+        return {
+          subject: (parsed.subject || "").trim(),
+          body: (parsed.body || "").trim(),
+        };
+      }
+    } catch (_) {}
+
+    // Fallback parser: if the model outputs unstructured format, try extracting subject/body if they look like key-values
+    const subjectMatch = clean.match(/"subject"\s*:\s*"([^"]*)"/);
+    const bodyMatch = clean.match(/"body"\s*:\s*"([\s\S]*?)"\s*(?:,|}|\n|$)/);
+    
+    if (subjectMatch || bodyMatch) {
+      let subject = subjectMatch ? subjectMatch[1] : "Draft";
+      let body = bodyMatch ? bodyMatch[1] : "";
+      try {
+        body = JSON.parse(`"${body}"`);
+      } catch (_) {
+        body = body.replace(/\\n/g, "\n").replace(/\\"/g, '"');
+      }
+      return { subject, body };
+    }
+
+    // Ultimate fallback: assume entire thing is body
+    return {
+      subject: "Draft",
+      body: raw.trim(),
+    };
+  }
+}
+
+/**
  * Builds the prompt for drafting a new email from a short prompt.
  */
 function buildComposePrompt(userPrompt: string): string {
@@ -487,13 +542,8 @@ function buildComposePrompt(userPrompt: string): string {
     userPrompt,
     "",
     "Format requirements:",
-    "Return the draft using exactly this format (with the ===SUBJECT=== and ===BODY=== headers):",
-    "===SUBJECT===",
-    "[Draft subject here, concise and professional]",
-    "===BODY===",
-    "[Draft body here, well-structured, professional, and natural]",
-    "",
-    "Do not include any other conversational filler or markup."
+    "You must return your response in raw valid JSON format containing exactly two keys: 'subject' and 'body'. Do not include markdown code block formatting like ```json ... ```. Do not include introductory text. Ensure the 'body' string is fully written out, highly professional, complete, and contains multiple sentences with appropriate spacing (\\n) as requested by the user prompt. ",
+    "Example Output: {\"subject\": \"Follow-up regarding delay\", \"body\": \"Dear Team,\\n\\nI am writing to check in on...\"}"
   ].join("\n");
 }
 
@@ -513,9 +563,8 @@ function buildReplyPrompt(threadContext: string, userPrompt: string): string {
     userPrompt,
     "",
     "Format requirements:",
-    "- Return ONLY the body text of the reply. Do not include a subject.",
-    "- Do not include any greeting or signature placeholder unless it makes sense for the content.",
-    "- Do not include any conversational filler, markdown formatting (like markdown code blocks), or headers."
+    "You must return your response in raw valid JSON format containing exactly two keys: 'subject' and 'body'. Do not include markdown code block formatting like ```json ... ```. Do not include introductory text. Ensure the 'body' string is fully written out, highly professional, complete, and contains multiple sentences with appropriate spacing (\\n) as requested by the user prompt. ",
+    "Example Output: {\"subject\": \"Re: Follow-up regarding delay\", \"body\": \"Dear Team,\\n\\nI am writing to check in on...\"}"
   ].join("\n");
 }
 
@@ -545,7 +594,7 @@ export async function draftNewEmail(
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.7, // slightly higher temp for writing creativity
-            maxOutputTokens: 500,
+            maxOutputTokens: 600, // increased tokens slightly for JSON formatting
           },
         }),
       });
@@ -554,7 +603,7 @@ export async function draftNewEmail(
         const detail = await res.text();
         if (res.status === 429 || detail.includes("RESOURCE_EXHAUSTED") || detail.includes("quota")) {
           console.warn(`[gemini] rate limit hit (429/RESOURCE_EXHAUSTED) on draft. Falling back to NVIDIA NIM.`);
-          raw = await callNvidiaNim(prompt, 500);
+          raw = await callNvidiaNim(prompt, 600);
           console.log(`[AI] model_used: nim (task: compose-draft)`);
         } else {
           throw new Error(`Gemini API error ${res.status}: ${detail}`);
@@ -572,7 +621,7 @@ export async function draftNewEmail(
       const errorMsg = err instanceof Error ? err.message : String(err);
       if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
         console.warn(`[gemini] rate limit caught on draft. Falling back to NVIDIA NIM.`);
-        raw = await callNvidiaNim(prompt, 500);
+        raw = await callNvidiaNim(prompt, 600);
         console.log(`[AI] model_used: nim (task: compose-draft)`);
       } else {
         throw err;
@@ -580,14 +629,7 @@ export async function draftNewEmail(
     }
   }
 
-  // Parse subject and body
-  const subjectMatch = raw.match(/===SUBJECT===([\s\S]*?)===BODY===/);
-  const bodyMatch = raw.match(/===BODY===([\s\S]*)/);
-
-  const subject = subjectMatch ? subjectMatch[1].trim() : "New Draft";
-  const body = bodyMatch ? bodyMatch[1].trim() : raw.trim();
-
-  return { subject, body };
+  return cleanAndParseJson(raw);
 }
 
 /**
@@ -603,7 +645,7 @@ export async function draftReplyEmail(
   let raw = "";
   if (process.env.SKIP_GEMINI === "true") {
     console.log(`[gemini] SKIP_GEMINI is set to true. Bypassing Gemini, calling NVIDIA NIM directly for reply draft.`);
-    raw = await callNvidiaNim(prompt, 500);
+    raw = await callNvidiaNim(prompt, 600);
     console.log(`[AI] model_used: nim (task: reply-draft)`);
   } else {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -617,7 +659,7 @@ export async function draftReplyEmail(
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 500,
+            maxOutputTokens: 600,
           },
         }),
       });
@@ -626,7 +668,7 @@ export async function draftReplyEmail(
         const detail = await res.text();
         if (res.status === 429 || detail.includes("RESOURCE_EXHAUSTED") || detail.includes("quota")) {
           console.warn(`[gemini] rate limit hit (429/RESOURCE_EXHAUSTED) on reply draft. Falling back to NVIDIA NIM.`);
-          raw = await callNvidiaNim(prompt, 500);
+          raw = await callNvidiaNim(prompt, 600);
           console.log(`[AI] model_used: nim (task: reply-draft)`);
         } else {
           throw new Error(`Gemini API error ${res.status}: ${detail}`);
@@ -644,7 +686,7 @@ export async function draftReplyEmail(
       const errorMsg = err instanceof Error ? err.message : String(err);
       if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
         console.warn(`[gemini] rate limit caught on reply draft. Falling back to NVIDIA NIM.`);
-        raw = await callNvidiaNim(prompt, 500);
+        raw = await callNvidiaNim(prompt, 600);
         console.log(`[AI] model_used: nim (task: reply-draft)`);
       } else {
         throw err;
@@ -652,7 +694,8 @@ export async function draftReplyEmail(
     }
   }
 
-  return raw.trim();
+  const parsed = cleanAndParseJson(raw);
+  return parsed.body;
 }
 
 /**
