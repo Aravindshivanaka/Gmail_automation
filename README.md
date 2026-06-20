@@ -8,13 +8,10 @@
 
 ## Evaluation Access Note
 
-Google OAuth is currently configured in Testing Mode.
-
-Only approved Gmail accounts can authenticate through Google's OAuth consent screen. If additional access is required for evaluation, please contact me and I can:
-
-* Add evaluator email addresses as OAuth Test Users
-* Provide a live walkthrough and demonstration
-* Share a recorded demo covering all implemented features
+Note: Since this app is in Google's unverified testing mode (expected for a take-home assessment under the 100-user cap), 
+* when you/user tried to login user/you'll see a "Google hasn't verified this app" warning when logging in. 
+* Click Advanced → Go to Gmail_Auto (unsafe) to proceed 
+* this is standard for any unverified OAuth app and does not indicate a problem with the application itself.
 
 
 # Project Overview

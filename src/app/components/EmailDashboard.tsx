@@ -109,6 +109,28 @@ export default function EmailDashboard({
     }, 6000);
   };
 
+  // --- Mobile Scroll Position Helpers ---
+  const paneRef = React.useRef<HTMLDivElement>(null);
+  const isInitialMount = React.useRef(true);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    const isMobile = window.innerWidth < 1024;
+    if (!isMobile) return;
+
+    if (activeView !== "welcome") {
+      setTimeout(() => {
+        paneRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    } else {
+      // Scroll back to the top of the page when the panel is closed
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [activeView]);
+
   // --- Compose Email State ---
   const [composeTo, setComposeTo] = useState("");
   const [composePrompt, setComposePrompt] = useState("");
@@ -393,17 +415,16 @@ export default function EmailDashboard({
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-6">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6">
       {/* Dynamic Alerts Banner */}
       {notification && (
         <div
-          className={`fixed top-4 right-4 z-50 flex items-center p-4 rounded-xl border shadow-lg max-w-md transition-all duration-500 animate-slide-in ${
-            notification.type === "success"
-              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-              : notification.type === "error"
+          className={`fixed top-4 right-4 left-4 sm:left-auto z-50 flex items-center p-4 rounded-xl border shadow-lg sm:max-w-md transition-all duration-500 animate-slide-in ${notification.type === "success"
+            ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+            : notification.type === "error"
               ? "bg-rose-50 border-rose-200 text-rose-800"
               : "bg-indigo-50 border-indigo-200 text-indigo-800"
-          }`}
+            }`}
         >
           <div className="flex-1 text-sm font-medium mr-3">
             {notification.message}
@@ -418,7 +439,7 @@ export default function EmailDashboard({
       )}
 
       {/* Modern Dashboard Header */}
-      <header className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+      <header className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white p-6 shadow-sm order-1">
         <div className="absolute top-0 right-0 h-32 w-32 bg-indigo-500 rounded-full blur-3xl opacity-10"></div>
         <div className="absolute bottom-0 left-1/4 h-24 w-24 bg-purple-500 rounded-full blur-3xl opacity-10"></div>
 
@@ -445,7 +466,7 @@ export default function EmailDashboard({
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <button
               onClick={() => {
                 setActiveView("compose");
@@ -455,7 +476,7 @@ export default function EmailDashboard({
                 setComposeBody("");
                 setComposeState("idle");
               }}
-              className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 hover:shadow-indigo-100 hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 hover:shadow-indigo-100 hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -466,27 +487,53 @@ export default function EmailDashboard({
               onClick={() => {
                 setActiveView("chat");
               }}
-              className="flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-500 hover:shadow-purple-100 hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-500 hover:shadow-purple-100 hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
               AI Chat Agent
             </button>
-            <form action="/api/auth/disconnect" method="post">
+            <form action="/api/auth/disconnect" method="post" className="w-full sm:w-auto">
               <button
                 type="submit"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
               >
-                Disconnect
+                Log Out
               </button>
             </form>
+            <div className="flex items-center justify-center gap-3 w-full sm:w-auto">
+              <a
+                href="https://linkedin.com/in/aravind-shivanaka-2026-"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center p-2.5 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+                title="LinkedIn"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
+                  <rect x="2" y="9" width="4" height="12" />
+                  <circle cx="4" cy="4" r="2" />
+                </svg>
+              </a>
+              <a
+                href="https://github.com/Aravindshivanaka"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center p-2.5 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+                title="GitHub"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+                </svg>
+              </a>
+            </div>
           </div>
         </div>
       </header>
 
       {/* Operational Actions Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 md:grid-cols-4 gap-4 ${activeView !== "welcome" ? "order-3" : "order-2"}`}>
         {/* Sync panel */}
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm hover:border-indigo-100 transition-all">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Data Synchronization</h3>
@@ -557,9 +604,9 @@ export default function EmailDashboard({
       </div>
 
       {/* Main Workspace Split Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 items-start ${activeView !== "welcome" ? "order-2" : "order-3"}`}>
         {/* Left Side: Email List & Categories (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className={`lg:col-span-7 space-y-6 ${activeView !== "welcome" ? "order-2 lg:order-none" : "order-1 lg:order-none"}`}>
           {/* Categories Pillbox */}
           {categoryCounts.length > 0 && (
             <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -601,11 +648,11 @@ export default function EmailDashboard({
                     className="p-5 hover:bg-slate-50/50 transition-colors group relative"
                   >
                     <div className="flex items-start justify-between gap-3 mb-1">
-                      <div className="min-w-0 flex-1">
-                        <span className="text-xs font-semibold text-slate-600">
+                      <div className="min-w-0 flex-1 flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-xs font-semibold text-slate-600 truncate max-w-[180px] sm:max-w-none">
                           {m.sender ? m.sender.replace(/<.*>/, "").replace(/"/g, "").trim() : "Unknown Sender"}
                         </span>
-                        <span className="text-[10px] text-gray-400 ml-2">
+                        <span className="text-[10px] text-gray-400">
                           {m.received_at ? new Date(m.received_at).toLocaleDateString() : ""}
                         </span>
                       </div>
@@ -631,7 +678,7 @@ export default function EmailDashboard({
                       </p>
                     )}
 
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50 opacity-100 group-hover:opacity-100 transition-opacity">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0 mt-3 pt-3 border-t border-gray-50 opacity-100 group-hover:opacity-100 transition-opacity">
                       <span className="text-[10px] text-slate-400 font-mono">
                         ID: {m.id.substring(0, 8)}...
                       </span>
@@ -653,10 +700,10 @@ export default function EmailDashboard({
         </div>
 
         {/* Right Side: Working Pane (5 cols) */}
-        <div className="lg:col-span-5">
+        <div ref={paneRef} className={`lg:col-span-5 ${activeView !== "welcome" ? "order-1 lg:order-none" : "order-2 lg:order-none"}`}>
           {/* Welcome Screen */}
           {activeView === "welcome" && (
-            <div className="rounded-2xl border border-dashed border-gray-300 bg-slate-50/50 p-8 text-center space-y-4">
+            <div className="rounded-2xl border border-dashed border-gray-300 bg-slate-50/50 p-6 sm:p-8 text-center space-y-4">
               <div className="mx-auto w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -779,11 +826,11 @@ export default function EmailDashboard({
                     />
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <button
                       onClick={handleSendCompose}
                       disabled={composeState === "sending"}
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                      className="w-full sm:flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
                     >
                       {composeState === "sending" ? (
                         <>
@@ -797,7 +844,7 @@ export default function EmailDashboard({
                     <button
                       onClick={() => setComposeState("idle")}
                       disabled={composeState === "sending"}
-                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors disabled:opacity-50"
+                      className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors disabled:opacity-50"
                     >
                       Discard
                     </button>
@@ -915,11 +962,11 @@ export default function EmailDashboard({
                     />
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <button
                       onClick={handleSendReply}
                       disabled={replyState === "sending"}
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                      className="w-full sm:flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
                     >
                       {replyState === "sending" ? (
                         <>
@@ -933,7 +980,7 @@ export default function EmailDashboard({
                     <button
                       onClick={() => setReplyState("idle")}
                       disabled={replyState === "sending"}
-                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors disabled:opacity-50"
+                      className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors disabled:opacity-50"
                     >
                       Discard
                     </button>
@@ -947,7 +994,7 @@ export default function EmailDashboard({
           {activeView === "chat" && (
             <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm flex flex-col h-[600px] relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 to-indigo-600"></div>
-              
+
               {/* Chat Header */}
               <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4 shrink-0">
                 <div className="flex items-center gap-2">
@@ -993,19 +1040,17 @@ export default function EmailDashboard({
                     {chatMessages.map((msg, i) => (
                       <div
                         key={i}
-                        className={`flex flex-col ${
-                          msg.role === "user" ? "items-end" : "items-start"
-                        }`}
+                        className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"
+                          }`}
                       >
                         <span className="text-[9px] text-slate-400 mb-1 px-1">
                           {msg.role === "user" ? "You" : "AI Agent"}
                         </span>
                         <div
-                          className={`rounded-2xl p-3 max-w-[90%] font-medium leading-relaxed whitespace-pre-wrap break-words border ${
-                            msg.role === "user"
-                              ? "bg-indigo-600 border-indigo-700 text-white shadow-sm"
-                              : "bg-slate-50 border-slate-200 text-slate-800"
-                          }`}
+                          className={`rounded-2xl p-3 max-w-[90%] font-medium leading-relaxed whitespace-pre-wrap break-words border ${msg.role === "user"
+                            ? "bg-indigo-600 border-indigo-700 text-white shadow-sm"
+                            : "bg-slate-50 border-slate-200 text-slate-800"
+                            }`}
                         >
                           {msg.content}
 
@@ -1036,7 +1081,7 @@ export default function EmailDashboard({
                         </div>
                       </div>
                     ))}
-                    
+
                     {/* Thinking status indicator */}
                     {chatState === "thinking" && (
                       <div className="flex flex-col items-start">
