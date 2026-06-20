@@ -63,7 +63,7 @@ export default async function HomePage({
         </div>
       ) : (
         /* ---------- LOGGED OUT (Login card) ---------- */
-        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-sm">
           <h1 className="mb-1 text-2xl font-semibold text-center">Gmail Intelligence Platform</h1>
           <p className="mb-6 text-sm text-gray-500 text-center">Stage 5 — AI Compose & Reply</p>
           <div className="space-y-4">
